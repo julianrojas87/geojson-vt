@@ -1,6 +1,8 @@
 
 const options = {
-    debug: 1
+    debug: 0,
+    maxZoom: 16,
+    indexMaxZoom: 16
 };
 
 const padding = 8 / 512;
@@ -30,7 +32,7 @@ if (devicePixelRatio > 1) {
 
 ctx.textAlign = 'center';
 ctx.font = '48px Helvetica, Arial';
-ctx.fillText('Drag a GeoJSON or TopoJSON here', height / 2, height / 2);
+ctx.fillText('Drag a GeoJSON here', height / 2, height / 2);
 
 function humanFileSize(size) {
     const i = Math.floor(Math.log(size) / Math.log(1024));
@@ -49,7 +51,7 @@ canvas.ondrop = function (e) {
     this.className = 'loaded';
 
     ctx.clearRect(0, 0, height, height);
-    ctx.fillText('Thanks! Loading...', height / 2, height / 2);
+    ctx.fillText('Loading...', height / 2, height / 2);
 
     const reader = new FileReader();
     reader.onload = function (event) {
@@ -65,8 +67,20 @@ canvas.ondrop = function (e) {
         }
 
         tileIndex = geojsonvt(data, options); //eslint-disable-line
-
         drawTile();
+
+        // Analyze and tabulate the results
+        const results = analyzeTiles(16);
+        new Tabulator("#analysis-table", {
+            height: 450, // set height of table (in CSS or here), this enables the Virtual DOM and improves render speed dramatically (can be any valid css height value)
+            data: results, //assign data to table
+            layout: "fitColumns", //fit columns to width of table (optional)
+            columns: [ //Define Table Columns
+                { title: "Zoom Level", field: "z", width: 150 },
+                { title: "Average Nodes", field: "averageFeatures", width: 200 },
+                { title: "Tile Count", field: "tileCount", width: 200 }
+            ],
+        });
     };
     reader.readAsText(e.dataTransfer.files[0]);
 
@@ -146,7 +160,7 @@ function drawTile() {
 }
 
 canvas.onclick = function (e) {
-    if (!tileIndex || z === 14) return;
+    if (!tileIndex) return;
 
     const mouseX = e.layerX - 10;
     const mouseY = e.layerY - 10;
@@ -208,3 +222,42 @@ function drillDown() {
     console.timeEnd('drill down');
 }
 /*eslint-enable no-unused-vars */
+
+function analyzeTiles(max) {
+    const reports = new Map();
+    reports.set(0, { 
+        z: 0, 
+        featureCount: tileIndex.getTile(0, 0, 0).features.length,
+        tileCount: 1 
+    });
+    
+    // Recursively analyze data to measure tile size averages at different zoom levels
+    drillTiles(1, 0, 0, 2, 2, reports, max);
+    // Calculate average for each zoom level
+    reports.forEach((report) => {
+        report.averageFeatures = Math.round(((report.featureCount / report.tileCount) + Number.EPSILON) * 100) / 100;
+    });
+    
+    return Array.from(reports.values());
+}
+
+function drillTiles(Z, tileX, tileY, X, Y, reports, max) {
+    if (Z <= max) {
+        if(!reports.has(Z)) {
+            reports.set(Z, { z: Z, featureCount: 0, tileCount: 0 });
+        }
+
+        for (let x = tileX; x < X; x++) {
+            for (let y = tileY; y < Y; y++) {
+                const tile = tileIndex.getTile(Z, x, y);
+                if (tile && tile.features.length > 0) {
+                    const report = reports.get(Z);
+                    report.tileCount++;
+                    report.featureCount += tile.features.length;
+
+                    drillTiles(Z + 1, x * 2, y * 2, (x * 2) + 2, (y * 2) + 2, reports, max);
+                }
+            }
+        }
+    }
+}
