@@ -25,6 +25,11 @@ export default function convert(data, options) {
 function convertFeature(features, geojson, options, index) {
     if (!geojson.geometry) return;
 
+    // Hack to handle poor quality data
+    if(Array.isArray(geojson.geometry)) {
+        geojson.geometry = geojson.geometry[0];
+    }
+    
     const coords = geojson.geometry.coordinates;
     const type = geojson.geometry.type;
     const tolerance = Math.pow(options.tolerance / ((1 << options.maxZoom) * options.extent), 2);
